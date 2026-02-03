@@ -105,9 +105,19 @@ const UserLocationMarker = ({ isTracking, setMapCenter }: { isTracking: boolean,
 
 const MapController = ({ center, zoom }: { center: [number, number], zoom: number }) => {
   const map = useMap();
+  
+  // Efecto crítico para reparar el mapa cortado
+  useEffect(() => {
+    // Forzar el recálculo del tamaño de Leaflet
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+  }, [map]);
+
   useEffect(() => {
     map.setView(center, zoom);
   }, [center, zoom, map]);
+  
   return null;
 };
 
@@ -276,7 +286,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-full font-sans text-gray-900 overflow-hidden bg-gray-100">
+    <div className="flex h-full w-full font-sans text-gray-900 overflow-hidden bg-gray-100">
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/40 z-[60] md:hidden" 
