@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap, ZoomControl, useMapEvents } from 'react-leaflet';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap, ZoomControl } from 'react-leaflet';
 import L from 'leaflet';
-import { Search, Info, Map as MapIcon, Train, MessageSquare, ChevronRight, X, Menu, Navigation, Locate, Edit, Copy, Check, Bus, Compass } from 'lucide-react';
+import { Search, Train, MessageSquare, ChevronRight, X, Menu, Navigation, Locate, Edit, Copy, Check, Bus, Compass } from 'lucide-react';
 import { STATIONS, LINE_COLORS } from './constants';
 import { Station, ChatMessage } from './types';
 import { GoogleGenAI } from "@google/genai";
@@ -37,38 +37,36 @@ const createStationIcon = (name: string, line: string | number) => {
   return L.divIcon({
     className: 'custom-station-icon bg-transparent border-none',
     html: `
-      <div style="display: flex; align-items: center; width: max-content; pointer-events: none;">
+      <div style="display: flex; align-items: center; width: max-content; cursor: grab;">
         <div style="
-          width: 14px; 
-          height: 14px; 
+          width: 16px; 
+          height: 16px; 
           background-color: ${iconColor}; 
-          border: 1.5px solid white; 
-          box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+          border: 2px solid white; 
+          box-shadow: 0 1px 4px rgba(0,0,0,0.4);
           display: flex;
           align-items: center;
           justify-content: center;
-          border-radius: 2px;
+          border-radius: 3px;
           color: white;
-          font-size: 8px;
+          font-size: 9px;
+          flex-shrink: 0;
         ">
           ${isBus ? '🚌' : '🚆'}
         </div>
         <span style="
-          color: #374151; 
+          color: #1f2937; 
           font-weight: 800; 
           font-size: 11px; 
-          margin-left: 5px; 
-          text-shadow: 
-            -1px -1px 0 #fff,  
-            1px -1px 0 #fff,
-            -1px 1px 0 #fff,
-            1px 1px 0 #fff;
+          margin-left: 6px; 
+          text-shadow: 0 0 3px white, 0 0 3px white, 0 0 3px white;
           white-space: nowrap;
+          pointer-events: none;
         ">${name}</span>
       </div>
     `,
-    iconSize: [14, 14], 
-    iconAnchor: [7, 7], 
+    iconSize: [16, 16], 
+    iconAnchor: [8, 8], 
   });
 };
 
@@ -106,12 +104,11 @@ const UserLocationMarker = ({ isTracking, setMapCenter }: { isTracking: boolean,
 const MapController = ({ center, zoom }: { center: [number, number], zoom: number }) => {
   const map = useMap();
   
-  // Efecto crítico para reparar el mapa cortado
   useEffect(() => {
-    // Forzar el recálculo del tamaño de Leaflet
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       map.invalidateSize();
     }, 250);
+    return () => clearTimeout(timer);
   }, [map]);
 
   useEffect(() => {
@@ -134,16 +131,13 @@ const App: React.FC = () => {
   const [isTracking, setIsTracking] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   
-  const dragStartCoords = useRef<{ lat: number, lng: number } | null>(null);
-  const initialGroupPositions = useRef<Record<string, { lat: number, lng: number }>>({});
-  const rafRef = useRef<number | null>(null);
-
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: '¡Hola! Soy tu asistente de transporte de Guadalajara. ¿En qué puedo ayudarte hoy?' }
   ]);
   const [userInput, setUserInput] = useState('');
   const [isLoadingChat, setIsLoadingChat] = useState(false);
 
+  // Memoize line paths for performance
   const currentLinePaths = useMemo(() => {
     return [1, 2, 3, 4, 'mc', 'mp'].map(lineId => ({
       id: lineId,
@@ -152,9 +146,11 @@ const App: React.FC = () => {
     }));
   }, [stations]);
 
-  const filteredStations = stations.filter(s => 
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) && 
-    visibleLines.includes(s.line)
+  const filteredStations = useMemo(() => 
+    stations.filter(s => 
+      s.name.toLowerCase().includes(searchQuery.toLowerCase()) && 
+      visibleLines.includes(s.line)
+    ), [stations, searchQuery, visibleLines]
   );
 
   const toggleLine = (line: number | string) => {
@@ -179,60 +175,15 @@ const App: React.FC = () => {
     }
   };
 
-  const handleMarkerDragStart = (id: string, e: L.LeafletEvent) => {
-    if (id === 'mc-01' || id === 'mp-huen') {
-      const marker = e.target as L.Marker;
-      const pos = marker.getLatLng();
-      dragStartCoords.current = { lat: pos.lat, lng: pos.lng };
-      
-      const line = stations.find(s => s.id === id)?.line;
-      const group: Record<string, { lat: number, lng: number }> = {};
-      stations.forEach(s => {
-        if (s.line === line) {
-          group[s.id] = { lat: s.lat, lng: s.lng };
-        }
-      });
-      initialGroupPositions.current = group;
-    }
-  };
-
-  const handleMarkerDrag = (id: string, e: L.LeafletEvent) => {
-    if ((id === 'mc-01' || id === 'mp-huen') && dragStartCoords.current) {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      
-      rafRef.current = requestAnimationFrame(() => {
-        const marker = e.target as L.Marker;
-        const newPos = marker.getLatLng();
-        const deltaLat = newPos.lat - dragStartCoords.current!.lat;
-        const deltaLng = newPos.lng - dragStartCoords.current!.lng;
-
-        const line = stations.find(s => s.id === id)?.line;
-        setStations(prev => prev.map(s => {
-          if (s.line === line && initialGroupPositions.current[s.id]) {
-            return {
-              ...s,
-              lat: initialGroupPositions.current[s.id].lat + deltaLat,
-              lng: initialGroupPositions.current[s.id].lng + deltaLng
-            };
-          }
-          return s;
-        }));
-      });
-    }
-  };
-
-  const handleMarkerDragEnd = (id: string, e: L.LeafletEvent) => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+  // Improved drag handler - only updates state on drag end to prevent performance issues
+  const handleMarkerDragEnd = useCallback((id: string, e: L.LeafletEvent) => {
     const marker = e.target as L.Marker;
-    const position = marker.getLatLng();
-    if (id !== 'mc-01' && id !== 'mp-huen') {
-      setStations(prev => prev.map(s => 
-        s.id === id ? { ...s, lat: position.lat, lng: position.lng } : s
-      ));
-    }
-    dragStartCoords.current = null;
-    initialGroupPositions.current = {};
-  };
+    const { lat, lng } = marker.getLatLng();
+    
+    setStations(prev => prev.map(s => 
+      s.id === id ? { ...s, lat, lng } : s
+    ));
+  }, []);
 
   const exportConfiguration = () => {
     const exportData = stations.map(s => {
@@ -265,7 +216,7 @@ const App: React.FC = () => {
       });
       setChatMessages([...newMessages, { role: 'assistant', content: response.text || 'Lo siento.' }]);
     } catch (error) {
-      setChatMessages([...newMessages, { role: 'assistant', content: 'Error.' }]);
+      setChatMessages([...newMessages, { role: 'assistant', content: 'Error en la conexión con el asistente.' }]);
     } finally {
       setIsLoadingChat(false);
     }
@@ -327,6 +278,16 @@ const App: React.FC = () => {
               >
                 <Edit size={12} /> {isEditMode ? 'Listo' : 'Edición'}
               </button>
+              
+              {isEditMode && (
+                <button 
+                  onClick={exportConfiguration}
+                  className={`flex-1 py-2 px-3 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all bg-green-600 text-white shadow-lg hover:bg-green-700 active:scale-95`}
+                >
+                  {copySuccess ? <Check size={12} /> : <Copy size={12} />}
+                  {copySuccess ? 'Copiado' : 'Copiar Config'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -430,7 +391,7 @@ const App: React.FC = () => {
               positions={path.coordinates} 
               pathOptions={{ 
                 color: path.color, 
-                weight: typeof path.id === 'string' ? 5 : 6, 
+                weight: typeof path.id === 'string' ? 4 : 6, 
                 opacity: 0.9, 
                 dashArray: path.id === 'mp' ? '1, 10' : undefined 
               }} 
@@ -439,14 +400,12 @@ const App: React.FC = () => {
 
           {filteredStations.map(station => (
             <Marker 
-              key={station.id} 
+              key={`${station.id}-${isEditMode}`} // Key change triggers re-mount for draggable
               position={[station.lat, station.lng]} 
               icon={createStationIcon(station.name, station.line)} 
               draggable={isEditMode}
               eventHandlers={{
                 click: () => handleStationClick(station),
-                dragstart: (e) => handleMarkerDragStart(station.id, e),
-                drag: (e) => handleMarkerDrag(station.id, e),
                 dragend: (e) => handleMarkerDragEnd(station.id, e)
               }}
             >
