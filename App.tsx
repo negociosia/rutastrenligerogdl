@@ -32,7 +32,7 @@ const createUserLocationIcon = () => L.divIcon({
 // Custom icons for stations: Show icon + name
 const createStationIcon = (name: string, line: string | number) => {
   const isBus = typeof line === 'string' && (line === 'mc' || line === 'mp');
-  const iconColor = isBus ? '#4b5563' : '#1d4ed8'; 
+  const iconColor = LINE_COLORS[line] || '#1d4ed8'; 
   
   return L.divIcon({
     className: 'custom-station-icon bg-transparent border-none',
@@ -54,7 +54,7 @@ const createStationIcon = (name: string, line: string | number) => {
           ${isBus ? '🚌' : '🚆'}
         </div>
         <span style="
-          color: ${isBus ? '#374151' : '#7e22ce'}; 
+          color: #374151; 
           font-weight: 800; 
           font-size: 11px; 
           margin-left: 5px; 
@@ -158,7 +158,7 @@ const App: React.FC = () => {
       setSelectedStation(station);
       setMapCenter([station.lat, station.lng]);
       setMapZoom(16);
-      setIsTracking(false); // Stop tracking when manually picking a station
+      setIsTracking(false); 
       if (window.innerWidth < 768) setIsSidebarOpen(false);
     }
   };
@@ -170,14 +170,15 @@ const App: React.FC = () => {
   };
 
   const handleMarkerDragStart = (id: string, e: L.LeafletEvent) => {
-    if (id === 'mc-01') {
+    if (id === 'mc-01' || id === 'mp-huen') {
       const marker = e.target as L.Marker;
       const pos = marker.getLatLng();
       dragStartCoords.current = { lat: pos.lat, lng: pos.lng };
       
+      const line = stations.find(s => s.id === id)?.line;
       const group: Record<string, { lat: number, lng: number }> = {};
       stations.forEach(s => {
-        if (s.line === 'mc') {
+        if (s.line === line) {
           group[s.id] = { lat: s.lat, lng: s.lng };
         }
       });
@@ -186,7 +187,7 @@ const App: React.FC = () => {
   };
 
   const handleMarkerDrag = (id: string, e: L.LeafletEvent) => {
-    if (id === 'mc-01' && dragStartCoords.current) {
+    if ((id === 'mc-01' || id === 'mp-huen') && dragStartCoords.current) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       
       rafRef.current = requestAnimationFrame(() => {
@@ -195,8 +196,9 @@ const App: React.FC = () => {
         const deltaLat = newPos.lat - dragStartCoords.current!.lat;
         const deltaLng = newPos.lng - dragStartCoords.current!.lng;
 
+        const line = stations.find(s => s.id === id)?.line;
         setStations(prev => prev.map(s => {
-          if (s.line === 'mc' && initialGroupPositions.current[s.id]) {
+          if (s.line === line && initialGroupPositions.current[s.id]) {
             return {
               ...s,
               lat: initialGroupPositions.current[s.id].lat + deltaLat,
@@ -213,7 +215,7 @@ const App: React.FC = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     const marker = e.target as L.Marker;
     const position = marker.getLatLng();
-    if (id !== 'mc-01') {
+    if (id !== 'mc-01' && id !== 'mp-huen') {
       setStations(prev => prev.map(s => 
         s.id === id ? { ...s, lat: position.lat, lng: position.lng } : s
       ));
@@ -275,7 +277,6 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-full font-sans text-gray-900 overflow-hidden bg-gray-100">
-      {/* Sidebar overlay for mobile */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/40 z-[60] md:hidden" 
@@ -283,7 +284,6 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Sidebar */}
       <div className={`fixed inset-y-0 left-0 z-[70] w-[85%] max-w-sm bg-white shadow-2xl transition-transform duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:w-80`}>
         <div className="flex flex-col h-full">
           <div className="p-4 md:p-6 bg-blue-700 text-white shadow-md shrink-0">
@@ -317,15 +317,6 @@ const App: React.FC = () => {
               >
                 <Edit size={12} /> {isEditMode ? 'Listo' : 'Edición'}
               </button>
-
-              {isEditMode && (
-                <button 
-                  onClick={exportConfiguration}
-                  className={`flex-1 py-2 px-3 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${copySuccess ? 'bg-green-500 text-white' : 'bg-white text-blue-800 shadow-lg'}`}
-                >
-                  {copySuccess ? <Check size={12} /> : <Copy size={12} />} Config
-                </button>
-              )}
             </div>
           </div>
 
@@ -345,10 +336,13 @@ const App: React.FC = () => {
             <div>
               <h2 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Mi Macro (BRT)</h2>
               <div className="flex flex-col gap-2">
-                {[{ id: 'mc', name: 'Macro Calzada' }, { id: 'mp', name: 'Macro Periférico' }].map(macro => (
+                {[
+                  { id: 'mc', name: 'Macro Calzada (L6)', line: 'mc' }, 
+                  { id: 'mp', name: 'Macro Periférico (L7)', line: 'mp' }
+                ].map(macro => (
                   <button key={macro.id} onClick={() => toggleLine(macro.id)} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-sm ${visibleLines.includes(macro.id) ? 'bg-gray-100 border-gray-300 shadow-sm font-bold ring-2 ring-gray-500/20' : 'bg-white border-gray-100 opacity-60'}`}>
                     <Bus size={16} className="text-gray-400" />
-                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: LINE_COLORS[macro.id] }}></div>
+                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: LINE_COLORS[macro.line] }}></div>
                     <span>{macro.name}</span>
                   </button>
                 ))}
@@ -379,7 +373,6 @@ const App: React.FC = () => {
       </div>
 
       <div className="relative flex-1 h-full">
-        {/* Mobile Header FAB */}
         {!isSidebarOpen && (
           <button 
             onClick={() => setIsSidebarOpen(true)} 
@@ -389,7 +382,6 @@ const App: React.FC = () => {
           </button>
         )}
 
-        {/* Action Buttons FABs */}
         <div className="absolute top-4 right-4 z-40 flex flex-col gap-3">
           <button 
             onClick={toggleGPS} 
@@ -428,9 +420,9 @@ const App: React.FC = () => {
               positions={path.coordinates} 
               pathOptions={{ 
                 color: path.color, 
-                weight: typeof path.id === 'string' ? 4 : 6, 
-                opacity: 0.8, 
-                dashArray: typeof path.id === 'string' ? '1, 8' : undefined 
+                weight: typeof path.id === 'string' ? 5 : 6, 
+                opacity: 0.9, 
+                dashArray: path.id === 'mp' ? '1, 10' : undefined 
               }} 
             />
           ))}
@@ -455,9 +447,6 @@ const App: React.FC = () => {
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: LINE_COLORS[station.line] }}></div>
                       <span className="font-bold text-sm">{station.name}</span>
                     </div>
-                    <p className="text-[10px] text-gray-500 mb-1">
-                      {typeof station.line === 'string' ? (station.line === 'mc' ? 'Mi Macro Calzada' : 'Mi Macro Periférico') : `Tren Ligero L${station.line}`}
-                    </p>
                   </div>
                 </Popup>
               )}
@@ -465,10 +454,9 @@ const App: React.FC = () => {
           ))}
         </MapContainer>
 
-        {/* Selected Station Card - Better Mobile Support */}
         {selectedStation && !isEditMode && (
           <div className="absolute bottom-6 left-0 right-0 z-40 flex justify-center px-4 md:px-0">
-            <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border-t-8 border-l-0 md:border-l-8 md:border-t-0 animate-in fade-in slide-in-from-bottom-8 duration-300" style={{ borderColor: LINE_COLORS[selectedStation.line] }}>
+            <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border-t-8 md:border-t-0 md:border-l-8 animate-in fade-in slide-in-from-bottom-8 duration-300" style={{ borderColor: LINE_COLORS[selectedStation.line] }}>
               <div className="p-5 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <div className="p-3 md:p-4 rounded-2xl text-white shadow-lg shrink-0" style={{ backgroundColor: LINE_COLORS[selectedStation.line] }}>
@@ -477,7 +465,9 @@ const App: React.FC = () => {
                   <div className="overflow-hidden">
                     <h3 className="text-xl md:text-2xl font-black text-gray-900 leading-tight truncate">{selectedStation.name}</h3>
                     <p className="text-xs md:text-sm text-gray-500 font-bold uppercase tracking-wider">
-                      {typeof selectedStation.line === 'string' ? (selectedStation.line === 'mc' ? 'Macro Calzada' : 'Macro Periférico') : `Línea ${selectedStation.line} - Tren Ligero`}
+                      {typeof selectedStation.line === 'string' ? 
+                        (selectedStation.line === 'mc' ? 'Macro Calzada (L6)' : 'Macro Periférico (L7)') : 
+                        `Línea ${selectedStation.line} - Tren Ligero`}
                     </p>
                   </div>
                 </div>
@@ -501,7 +491,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* AI Chat - Mobile Friendly Full Screenish */}
         {isChatOpen && !isEditMode && (
           <div className="fixed inset-0 z-[100] md:absolute md:inset-auto md:top-20 md:right-4 md:w-[400px] md:h-3/4 bg-white md:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right md:zoom-in-95">
             <div className="bg-blue-600 p-4 md:p-5 text-white flex justify-between items-center shrink-0 shadow-lg">
@@ -511,12 +500,7 @@ const App: React.FC = () => {
                 </div>
                 <span className="font-bold text-lg tracking-tight">Guía SITEUR</span>
               </div>
-              <button 
-                onClick={() => setIsChatOpen(false)} 
-                className="p-2 hover:bg-white/10 rounded-xl transition-colors"
-              >
-                <X size={24} />
-              </button>
+              <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-colors"><X size={24} /></button>
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
@@ -550,7 +534,7 @@ const App: React.FC = () => {
               <button 
                 onClick={sendMessage} 
                 disabled={isLoadingChat}
-                className="p-4 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-lg active:scale-95 disabled:opacity-50"
+                className="p-4 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-lg active:scale-95"
               >
                 <ChevronRight size={24} />
               </button>
