@@ -1,0 +1,7 @@
+{
+  "name": "SITEUR Guadalajara - Guía de Transporte Mapas a Mano ok",
+  "description": "Una aplicación interactiva para navegar las líneas 1, 2, 3 y 4 del Tren Ligero de Guadalajara con información detallada de estaciones y un asistente inteligente.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
